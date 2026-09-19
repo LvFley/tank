@@ -200,6 +200,36 @@
   const ctx = canvas.getContext("2d");
   const overlay = document.getElementById("overlay");
 
+  // ---- 音效 ----
+  let audioCtx = null;
+  function initAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  function tone(freq, dur, type, vol, slide) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type || "square";
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    g.gain.setValueAtTime(vol || 0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + dur);
+  }
+  function sfx(kind) {
+    initAudio();
+    if (kind === "shoot") tone(600, 0.08, "square", 0.05, 200);
+    else if (kind === "explode") tone(130, 0.25, "sawtooth", 0.12, 40);
+    else if (kind === "brick") tone(220, 0.09, "square", 0.06, 110);
+    else if (kind === "steel") tone(900, 0.05, "square", 0.04, 700);
+    else if (kind === "base") tone(80, 0.6, "sawtooth", 0.14, 30);
+  }
+
   // ---- 工具 ----
   function cellAt(cx, cy) {
     if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return -1; // 边界视为钢墙
@@ -259,6 +289,7 @@
 
   Tank.prototype.fire = function () {
     if (this.cooldown > 0) return;
+    if (this.isPlayer) sfx("shoot");
     this.cooldown = this.isPlayer ? 18 : 40;
     const v = VEC[this.dir];
     const cx = this.x + CELL / 2 - 2 + v[0] * (CELL / 2 + 1);
@@ -293,10 +324,15 @@
       if (c === 1) { // 砖墙
         grid[cy][cx] = 0;
         this.alive = false;
+        sfx("brick");
         spawnParticles(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "#b5651d");
         return;
-      } else if (c === 2 || c === 3) { // 钢墙或基地
-        if (c === 3) hitBase();
+      } else if (c === 2) { // 钢墙
+        sfx("steel");
+        this.alive = false;
+        return;
+      } else if (c === 3) { // 基地
+        hitBase();
         this.alive = false;
         return;
       }
@@ -339,6 +375,7 @@
   // ---- 命中处理 ----
   function hitTank(t) {
     t.alive = false;
+    sfx("explode");
     spawnParticles(t.x + CELL / 2, t.y + CELL / 2, t.isPlayer ? "#4caf50" : "#e53935");
     if (t.isPlayer) {
       loseLife();
@@ -356,6 +393,7 @@
   function hitBase() {
     const c = basePos();
     if (c) grid[c[1]][c[0]] = 0;
+    sfx("base");
     spawnParticles(c[0] * CELL + CELL / 2, c[1] * CELL + CELL / 2, "#ffd600");
     endGame(false);
   }
@@ -644,6 +682,7 @@
 
   // ---- 输入 ----
   window.addEventListener("keydown", (e) => {
+    initAudio();
     const k = e.key;
     KEYS[k] = true;
     if (k === " " || k === "ArrowUp" || k === "ArrowDown" || k === "ArrowLeft" || k === "ArrowRight") {
@@ -653,7 +692,7 @@
     if (k === "r" || k === "R") start();
   });
   window.addEventListener("keyup", (e) => { KEYS[e.key] = false; });
-  document.getElementById("btn").addEventListener("click", start);
+  document.getElementById("btn").addEventListener("click", () => { initAudio(); start(); });
   window.addEventListener("blur", () => { for (const k in KEYS) KEYS[k] = false; });
 
   // ---- 主循环 ----
